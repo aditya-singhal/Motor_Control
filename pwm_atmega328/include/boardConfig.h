@@ -6,6 +6,8 @@
 
 #define F_CPU 16000000UL
 
+#define DUTY_CYCLE(x)			((x/100)*255)
+
 #define TIMER0_A	1
 #define TIMER0_B	2
 #define TIMER2_A	3
