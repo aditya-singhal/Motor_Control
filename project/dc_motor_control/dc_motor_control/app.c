@@ -41,7 +41,7 @@ int main(void)
 	attachMotor(&motor3);
 	attachMotor(&motor4);
 
-	distanceTravelled = botMove(40.0,MAX_MOTOR_SPEED/3,enBotMoveForward);
+	distanceTravelled = botMove(40,MAX_MOTOR_SPEED/4,enBotMoveForward);
 	//distanceTravelled = botMove(14.65,MAX_MOTOR_SPEED/3,enBotMoveForward);
 	//distanceTravelled = botMove(14.65,MAX_MOTOR_SPEED/3,enBotMoveForward);
 	//botRotate(90, MAX_MOTOR_SPEED/3,enBotOrientationRight);
