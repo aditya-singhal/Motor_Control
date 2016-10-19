@@ -15,6 +15,7 @@
 
 #define GPIO_SET(port,pin)			((GPIO_typedef*)(port))->PORT |= (pin)
 #define GPIO_CLEAR(port,pin)		((GPIO_typedef*)(port))->PORT &= ~(pin)
+#define GPIO_PORT_READ(port)		((GPIO_typedef*)(port))->PIN
 
 void boardInit();
 

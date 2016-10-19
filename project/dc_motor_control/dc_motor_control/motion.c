@@ -4,43 +4,50 @@
 
 #include <util/delay.h>
 
-#define	RAMPING			0
-#define	RAMPING_STOP	1
+typedef enum
+{
+	enBotStateIdle,
+	enBotStateRamping,
+	enBotStateDesiredSpeed,
+	enBotStateStop
+}EnBotState_t;
 
 typedef enum
 {
-	enBotRunningState_0 = 0,
-	enBotRunningState_1,
-	enBotRunningState_2,
-	enBotRunningState_3,
-	enBotRunningState_4,
-	enBotRunningState_5,
-	enBotRunningState_6,
-	enBotRunningState_7,
-	enBotRunningState_8,
-	enBotRunningState_9
-}BotState_t;
+	enMotorRunningState_0 = 0,
+	enMotorRunningState_1,
+	enMotorRunningState_2,
+	enMotorRunningState_3,
+	enMotorRunningState_4,
+	enMotorRunningState_5,
+	enMotorRunningState_6,
+	enMotorRunningState_7,
+	enMotorRunningState_8,
+	enMotorRunningState_9
+}EnMotorState_t;
 
-static BotState_t botCurrentState = enBotRunningState_0;
+static EnMotorState_t motorCurrentState = enMotorRunningState_0;
+static EnBotState_t botCurrentState		= enBotStateIdle;
 
 //100% duty cycle
 //Average RPM values for the following milliseconds
 //RPM and distance traveled by the bot in a gap of 100 milliseconds
 float BOT_RPM[10]					= {181.3,209.3,232.5,254.6,256.7,265.1,267.1,272,272.8,274.8};
-float BOT_DISTANCE_TRAVELLED[10]	= {6.5,8.5,10,11.5,9.5,11,10,11,10,10.5};		//distance mapped according to the timings
-//x=RPM
-#define GET_SPEED(x)								((x*WHEEL_CIRCUMFERENCE)/60)
+//float BOT_DISTANCE_TRAVELLED[10]	= {6.5,8.5,10,11.5,9.5,11,10,11,10,10.5};		//distance mapped according to the timings
+
+#define GET_SPEED(RPM)							((RPM*WHEEL_CIRCUMFERENCE)/60)
 #define GET_DUTY_CYCLE(x,maxStateSpeed)			((x/maxStateSpeed)*100)
 
 #define MAX_MOTOR_SUPPORTED			4
 
-static void _botMoveForward(double duration);
-static void _botMoveBackward(double duration);
-static void _botTurnLeft(double duration);
-static void _botTurnRight(double duration);
-static float _beginMove(float distance, float userSpeed,BotMoveDirection_t direction);
+static void _botMoveForward();
+static void _botMoveBackward();
+static void _botTurnLeft();
+static void _botTurnRight();
+static float _motorRamp(float userSpeed,BotMoveDirection_t direction,uint8_t freeRun, float distance);
+static void _botSetSpeed(float userSpeed, EnMotorState_t motorState);
 
-typedef void (*botMove_fp)(double);
+typedef void (*botMove_fp)();
 
 botMove_fp move[4] = 
 {
@@ -65,49 +72,42 @@ int8_t attachMotor(MotorCfg_t* motor)
 		return -1;
 }
 
-static void _botMoveForward(double duration)
+float botMove(float distance, float userSpeed,BotMoveDirection_t direction)
 {
-	BOT_MOVE_FORWARD(Motor[0]);
-	BOT_MOVE_FORWARD(Motor[1]);
-	BOT_MOVE_FORWARD(Motor[2]);
-	BOT_MOVE_FORWARD(Motor[3]);
-	_delay_ms(duration);
+	float distTravelled=0;
+	double time=0;
+	
+	if(motorCurrentState < enMotorRunningState_9)
+	{
+		distTravelled = _motorRamp(userSpeed,direction,0,distance);
+		if(distTravelled == distance)
+		{
+			botShortBreak();
+			return distTravelled;
+		}
+	}
+
+	_botSetSpeed(userSpeed, enMotorRunningState_9);	
+	time = ((float)(distance-distTravelled)/(float)(userSpeed))*1000;
+	(move[direction])();
+	_delay_ms(time);
+	botShortBreak();
+	
+	return distance;
 }
 
-static void _botMoveBackward(double duration)
+void botRun(float userSpeed, BotMoveDirection_t direction)
 {
-	BOT_MOVE_BACKWARD(Motor[0]);
-	BOT_MOVE_BACKWARD(Motor[1]);
-	BOT_MOVE_BACKWARD(Motor[2]);
-	BOT_MOVE_BACKWARD(Motor[3]);
-	_delay_ms(duration);
-}
-
-static void _botTurnLeft(double duration)
-{
-	BOT_MOVE_BACKWARD(Motor[0]);
-	BOT_MOVE_FORWARD(Motor[1]);
-	BOT_MOVE_BACKWARD(Motor[2]);
-	BOT_MOVE_FORWARD(Motor[3]);
-	_delay_ms(duration);
-}
-
-static void _botTurnRight(double duration)
-{
-	BOT_MOVE_FORWARD(Motor[0]);
-	BOT_MOVE_BACKWARD(Motor[1]);
-	BOT_MOVE_FORWARD(Motor[2]);
-	BOT_MOVE_BACKWARD(Motor[3]);
-	_delay_ms(duration);
+	_motorRamp(userSpeed, direction,1,0);
+	(move[direction])();
 }
 
 void botShortBreak()
 {
 	dcMotorShortBreak(Motor[0]);
 	dcMotorShortBreak(Motor[1]);
-	dcMotorShortBreak(Motor[2]);
-	dcMotorShortBreak(Motor[3]);
-	botCurrentState = 0;
+	motorCurrentState	= enMotorRunningState_0;
+	botCurrentState		= enBotStateStop;
 }
 
 void botRotate(uint16_t angle, float speed,BotOrientation_t orientation)
@@ -117,146 +117,90 @@ void botRotate(uint16_t angle, float speed,BotOrientation_t orientation)
 	distance = (PI*AXLE_LENGTH/4);
 	if(orientation == enBotOrientationLeft)
 	{
-		botMove(distance,speed,enBotTurnLeft);
+		botMove(distance,speed,enBotMoveLeft);
 	}
 	else
 	{
-		botMove(distance,speed,enBotTurnRight);
+		botMove(distance,speed,enBotMoveRight);
 	}
 }
 
-float botMove(float distance, float userSpeed,BotMoveDirection_t direction)
+static float _motorRamp(float userSpeed,BotMoveDirection_t direction,uint8_t freeRun, float distance)
 {
-	float distTravelled=0;
-	double time=0;
-	
-	if(botCurrentState < enBotRunningState_9)		//final stage = 9
-	{
-		distTravelled = _beginMove(distance,userSpeed,direction);
-		if(distTravelled == distance)
-		{
-			return distTravelled;
-		}
-	}
-
-	setPWMDutyCycle(MOTOR1_FL, DUTY_CYCLE(GET_DUTY_CYCLE(userSpeed,GET_SPEED(BOT_RPM[enBotRunningState_9]))));
-	setPWMDutyCycle(MOTOR2_FR, DUTY_CYCLE(GET_DUTY_CYCLE(userSpeed,GET_SPEED(BOT_RPM[enBotRunningState_9]))));
-	setPWMDutyCycle(MOTOR3_BL, DUTY_CYCLE(GET_DUTY_CYCLE(userSpeed,GET_SPEED(BOT_RPM[enBotRunningState_9]))));
-	setPWMDutyCycle(MOTOR4_BR, DUTY_CYCLE(GET_DUTY_CYCLE(userSpeed,GET_SPEED(BOT_RPM[enBotRunningState_9]))));
-	
-	time = ((float)(distance-distTravelled)/(float)(userSpeed))*1000;
-	(move[direction])(time);
-	return distance;
-}
-
-static float _beginMove(float distance, float userSpeed,BotMoveDirection_t direction)
-{
-	static uint8_t motorState=0;
 	float distTravelled=0, botSpeed=0;
 	double time=0;
 	
-	motorState = RAMPING;
-	while(botCurrentState < enBotRunningState_9)		//for 1000ms
+	botCurrentState = enBotStateRamping;
+	while(motorCurrentState < enMotorRunningState_9)		//for 900ms
 	{
-		switch(motorState)
+		switch(botCurrentState)
 		{
-			case RAMPING:
+			case enBotStateRamping:
 			{
-				if(GET_SPEED(BOT_RPM[botCurrentState]) > userSpeed)
+				if(GET_SPEED(BOT_RPM[motorCurrentState]) > userSpeed)
 				{
-					botSpeed = userSpeed;
-					motorState = RAMPING_STOP;
+					botSpeed		= userSpeed;
+					botCurrentState = enBotStateDesiredSpeed;
 				}
 				else
 				{
-					botSpeed = GET_SPEED(BOT_RPM[botCurrentState]);
+					botSpeed = GET_SPEED(BOT_RPM[motorCurrentState]);
 				}
 				break;
 			}
 			
-			case RAMPING_STOP:				//bot speed= user speed
+			case enBotStateDesiredSpeed:				//bot speed=user speed
 			{
 				break;
 			}
 		}
 		
-		setPWMDutyCycle(MOTOR1_FL, (uint8_t)DUTY_CYCLE(GET_DUTY_CYCLE(botSpeed,GET_SPEED(BOT_RPM[botCurrentState]))));
-		setPWMDutyCycle(MOTOR2_FR, (uint8_t)DUTY_CYCLE(GET_DUTY_CYCLE(botSpeed,GET_SPEED(BOT_RPM[botCurrentState]))));
-		setPWMDutyCycle(MOTOR3_BL, (uint8_t)DUTY_CYCLE(GET_DUTY_CYCLE(botSpeed,GET_SPEED(BOT_RPM[botCurrentState]))));
-		setPWMDutyCycle(MOTOR4_BR, (uint8_t)DUTY_CYCLE(GET_DUTY_CYCLE(botSpeed,GET_SPEED(BOT_RPM[botCurrentState]))));
-		
-		if((distance-distTravelled) < (GET_SPEED(BOT_RPM[botCurrentState]) * 0.1))
+		_botSetSpeed(botSpeed, motorCurrentState);		
+		if(((distance-distTravelled) < (GET_SPEED(BOT_RPM[motorCurrentState]) * 0.1)) && (freeRun == 0))
 		{
-			time = ((float)(distance-distTravelled)/(float)(GET_SPEED(BOT_RPM[botCurrentState-1])))*1000;		//(botCurrentState-1)? check it
+			time = ((float)(distance-distTravelled)/(float)(GET_SPEED(BOT_RPM[motorCurrentState-1])))*1000;		//(botCurrentState-1)? check it
 			(move[direction])(time);
-			botCurrentState++;
+			motorCurrentState++;
 			return distance;
 		}
 		else
 		{
 			//run for 100ms
-			(move[direction])(100.0);
+			(move[direction])();
+			_delay_ms(100);
 			distTravelled += botSpeed * 0.1;
 		}
-		botCurrentState++;
+		motorCurrentState++;
 	}
-}
-
-#if 0
-
-float botMove(float distance, float speed,BotMoveDirection_t direction)
-{
-	double time;
-	float distTravelled=0;
-	
-	while(botCurrentState < enBotRunningState_8)
-	{
-		if(botInit == 1)
-		break;
-		
-		setPWMDutyCycle(MOTOR1_FL, DUTY_CYCLE(GET_DUTY_CYCLE(MAX_MOTOR_SPEED,MAX_MOTOR_SPEED)));
-		setPWMDutyCycle(MOTOR2_FR, DUTY_CYCLE(GET_DUTY_CYCLE(MAX_MOTOR_SPEED,MAX_MOTOR_SPEED)));
-		setPWMDutyCycle(MOTOR3_BL, DUTY_CYCLE(GET_DUTY_CYCLE(MAX_MOTOR_SPEED,MAX_MOTOR_SPEED)));
-		setPWMDutyCycle(MOTOR4_BR, DUTY_CYCLE(GET_DUTY_CYCLE(MAX_MOTOR_SPEED,MAX_MOTOR_SPEED)));
-		
-		if(distTravelled < distance)
-		{
-			if((distance-distTravelled) < BOT_DISTANCE_TRAVELLED[botCurrentState])
-			{
-				time = ((float)(distance-distTravelled)/(float)(GET_SPEED(BOT_RPM[botCurrentState])))*1000;
-				(move[direction])(time);
-				distTravelled = distance;		//can omit this line
-				return distTravelled;
-			}
-			else
-			{
-				(move[direction])(100.0);								//run for 100ms
-				distTravelled += BOT_DISTANCE_TRAVELLED[botCurrentState];
-				botCurrentState++;
-			}
-			
-			if(GET_SPEED(BOT_RPM[botCurrentState+1]) > speed)
-			{
-				setPWMDutyCycle(MOTOR1_FL, DUTY_CYCLE(GET_DUTY_CYCLE(speed,GET_SPEED(BOT_RPM[botCurrentState]))));
-				setPWMDutyCycle(MOTOR2_FR, DUTY_CYCLE(GET_DUTY_CYCLE(speed,GET_SPEED(BOT_RPM[botCurrentState]))));
-				setPWMDutyCycle(MOTOR3_BL, DUTY_CYCLE(GET_DUTY_CYCLE(speed,GET_SPEED(BOT_RPM[botCurrentState]))));
-				setPWMDutyCycle(MOTOR4_BR, DUTY_CYCLE(GET_DUTY_CYCLE(speed,GET_SPEED(BOT_RPM[botCurrentState]))));
-				botInit = 1;
-				break;
-			}
-		}
-		else
-		{
-			return distTravelled;
-		}
-	}
-	
-	//Motor is now running at the desired speed requested by the user.
-	time = ((float)(distance-distTravelled)/(float)speed) * 1000;
-	(move[direction])(time);
-	
-	distTravelled = distance;
 	return distTravelled;
 }
 
-#endif
+static void _botSetSpeed(float userSpeed, EnMotorState_t motorState)
+{
+	setPWMDutyCycle(MOTOR1_FL, DUTY_CYCLE(GET_DUTY_CYCLE(userSpeed,GET_SPEED(BOT_RPM[motorState]))));
+	setPWMDutyCycle(MOTOR2_FR, DUTY_CYCLE(GET_DUTY_CYCLE(userSpeed,GET_SPEED(BOT_RPM[motorState]))));
+}
+
+static void _botMoveForward()
+{
+	dcMotorMove_CW(Motor[0]);
+	dcMotorMove_CW(Motor[1]);
+}
+
+static void _botMoveBackward()
+{
+	dcMotorMove_CCW(Motor[0]);
+	dcMotorMove_CCW(Motor[1]);
+}
+
+static void _botTurnLeft()
+{
+	dcMotorMove_CCW(Motor[0]);
+	dcMotorMove_CW(Motor[1]);
+}
+
+static void _botTurnRight()
+{
+	dcMotorMove_CW(Motor[0]);
+	dcMotorMove_CCW(Motor[1]);
+}

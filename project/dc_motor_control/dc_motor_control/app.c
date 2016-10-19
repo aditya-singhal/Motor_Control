@@ -3,100 +3,122 @@
 #include "motor.h"
 #include "motion.h"
 
+uint8_t getSensorData();
+
 //PWM channels
 //pin5(OC0B) pin6(OC0A)
 //pin3(OC2B) pin11(OC2A)
 
 //FL
 MotorCfg_t motor1 =
-{						
-	PORTD,BIT_6,PORTC,BIT_0,PORTC,BIT_1,PORTB,BIT_5		//pin6,a0,a1,pin13
+{
+	PORTD,BIT_3,PORTD,BIT_2,PORTD,BIT_4,PORTB,BIT_0,	//pin3,pin2,pin4,pin8
 };
 
 //FR
 MotorCfg_t motor2 =
 {
-	PORTD,BIT_3,PORTD,BIT_2,PORTD,BIT_4,PORTB,BIT_0,	//pin3,pin2,pin4,pin8
-};
-
-//BL
-MotorCfg_t motor3 =
-{
-	PORTB,BIT_3,PORTB,BIT_4,PORTB,BIT_1,PORTB,BIT_5		//pin11,pin12,pin9,pin13
-};
-
-//BR
-MotorCfg_t motor4 =
-{
-	PORTD,BIT_5,PORTB,BIT_2,PORTD,BIT_7,PORTB,BIT_0		//pin5,pin10,pin7,pin8
+	PORTD,BIT_5,PORTD,BIT_6,PORTD,BIT_7,PORTB,BIT_0		//pin5,pin6,pin7,pin8
 };
 
 int main(void)
 {
 	float distanceTravelled=0;
-
+	
 	boardInit();
 	attachMotor(&motor1);
 	attachMotor(&motor2);
-	attachMotor(&motor3);
-	attachMotor(&motor4);
 
-	distanceTravelled = botMove(40,MAX_MOTOR_SPEED/4,enBotMoveForward);
-	//distanceTravelled = botMove(14.65,MAX_MOTOR_SPEED/3,enBotMoveForward);
+	followLine();
+
+	//distanceTravelled = botMove(40,MAX_MOTOR_SPEED,enBotMoveForward);
 	//distanceTravelled = botMove(14.65,MAX_MOTOR_SPEED/3,enBotMoveForward);
 	//botRotate(90, MAX_MOTOR_SPEED/3,enBotOrientationRight);
 	//botRotate(90, MAX_MOTOR_SPEED/3,enBotOrientationRight);
+	//botRotate(90, MAX_MOTOR_SPEED,enBotOrientationLeft);
+	//botRotate(90, MAX_MOTOR_SPEED,enBotOrientationLeft);
+	//botShortBreak();
+	//_delay_ms(200);
 	//botRotate(90, MAX_MOTOR_SPEED,enBotOrientationRight);
-	//botRotate(90, MAX_MOTOR_SPEED,enBotOrientationRight);	
+	//botRotate(90, MAX_MOTOR_SPEED,enBotOrientationRight);
 	
-	botShortBreak();
-	
-	//rotate(90,MOTOR_SPEED_MAX,enLeft);
-	//createRectangle(60,30,48.2,enLeft);
 	while(1);
 }
 
-#if 0
-void ledBlinkTest()
+
+void followLine()
 {
-	uint16_t loop=0;
+	uint8_t sensorData=0;
 	while(1)
 	{
-		for(loop=0;loop<=255;loop++)
+		sensorData = getSensorData();
+		switch(sensorData)
 		{
-			SET_PWM_DUTY_CYCLE(MOTOR1_FL, loop);
-			SET_PWM_DUTY_CYCLE(MOTOR2_FR, loop);
-			SET_PWM_DUTY_CYCLE(MOTOR3_BL, loop);
-			SET_PWM_DUTY_CYCLE(MOTOR4_BR, loop);
-			_delay_ms(10);
-		}
-		for(loop=255;loop>=1;loop--)
-		{
-			SET_PWM_DUTY_CYCLE(MOTOR1_FL, loop);
-			SET_PWM_DUTY_CYCLE(MOTOR2_FR, loop);
-			SET_PWM_DUTY_CYCLE(MOTOR3_BL, loop);
-			SET_PWM_DUTY_CYCLE(MOTOR4_BR, loop);
-			_delay_ms(10);
-		}
+			//forward
+			case 0x1B:
+			case 0x11:
+			case 0x00:
+			{
+				botRun(30, enBotMoveForward);
+				break;
+			}
+			//go hard right
+			case 0x1E:
+			case 0x1C:
+			case 0x18:
+			{
+				botRun(20,enBotMoveRight);
+				break;		
+			}
+			
+			//go right
+			case 0x1D:
+			case 0x19:
+			{
+				botRun(20,enBotMoveForward);
+				break;			
+			}
+			//go left
+			case 0x13:
+			case 0x17:
+			{
+				botRun(20,enBotMoveForward);
+				break;
+			}
+			
+			//hard left
+			case 0x0F:
+			case 0x7:
+			case 0x3:
+			{
+				botRun(20,enBotMoveLeft);
+				break;
+			}
+			
+			case 0x1F:
+			{
+				botShortBreak();
+				break;
+			}
+			default:
+				break;
+		}	
 	}
 }
 
-	setPWMDutyCycle(MOTOR1_FL, DUTY_CYCLE(100));
-	setPWMDutyCycle(MOTOR2_FR, DUTY_CYCLE(100));
-	setPWMDutyCycle(MOTOR3_BL, DUTY_CYCLE(100));
-	setPWMDutyCycle(MOTOR4_BR, DUTY_CYCLE(100));
-
-	dcMotorMove_CW(&motor1);
-	dcMotorMove_CW(&motor2);
-	dcMotorMove_CW(&motor3);
-	dcMotorMove_CW(&motor4);
-
-	_delay_ms(1000);
+//starting form the left
+//IRsensor1 - digital9	- PB1
+//IRsensor2 - digital10 - PB2
+//IRsensor3 - digital11	- PB3
+//IRsensor4 - digital12	- PB4
+//IRsensor5 - digital13	- PB5
+uint8_t getSensorData()
+{
+	uint8_t data=0;
 	
-	dcMotorShortBreak(&motor1);
-	dcMotorShortBreak(&motor2);
-	dcMotorShortBreak(&motor3);
-	dcMotorShortBreak(&motor4);
+	data = (GPIO_PORT_READ(PORTB));
+	return ((data>>1) & (0x1F));
+}
 
-
-#endif
+//On BLACK- led off - output 0
+//On WHITE- led on  - output 1

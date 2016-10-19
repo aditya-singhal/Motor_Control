@@ -9,10 +9,8 @@
 #define AXLE_LENGTH				19.5		//Total axle length
 #define	PI						22/7
 
-#define MOTOR1_FL			TIMER0_A		//Motor1 Front-left
-#define MOTOR2_FR			TIMER2_B		//Motor2 Front-right
-#define MOTOR3_BL			TIMER2_A		//Motor3 Back-left
-#define MOTOR4_BR			TIMER0_B		//Motor4 Back-right
+#define MOTOR1_FL			TIMER2_B		//Motor1 Front-left
+#define MOTOR2_FR			TIMER0_B		//Motor2 Front-right
 
 typedef struct MotorCfg 
 {
